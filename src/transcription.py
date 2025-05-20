@@ -19,7 +19,6 @@ logger = logging.getLogger("transcription_server")
 
 
 @serve.deployment(
-    num_replicas=1,
     max_ongoing_requests=100,
     autoscaling_config={
         "target_num_ongoing_requests_per_replica": 5,

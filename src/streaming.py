@@ -1,9 +1,35 @@
+import tempfile
 import asyncio
-from io import BytesIO
-
+import os
+import subprocess
 import numpy as np
 import soundfile as sf
-from pydub import AudioSegment
+from io import BytesIO
+
+
+# Check if FFmpeg is installed and set path if needed
+def ensure_ffmpeg():
+    """Make sure FFmpeg is available."""
+    try:
+        # Check if ffmpeg is in PATH
+        subprocess.run(["ffmpeg", "-version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+        print("FFmpeg found in PATH")
+        return True
+    except FileNotFoundError:
+        print("FFmpeg not found in PATH, attempting to install...")
+        try:
+            # Try to install FFmpeg if not present (works on Debian/Ubuntu systems)
+            subprocess.run(["apt-get", "update"], check=True)
+            subprocess.run(["apt-get", "install", "-y", "ffmpeg"], check=True)
+            print("FFmpeg installed successfully")
+            return True
+        except (subprocess.SubprocessError, FileNotFoundError):
+            print("WARNING: Could not install FFmpeg. Audio conversion may not work properly.")
+            return False
+
+
+# Run the check on module import
+FFMPEG_AVAILABLE = ensure_ffmpeg()
 
 
 async def convert_audio_bytes(audio_bytes, content_type=None):
@@ -28,48 +54,73 @@ async def convert_audio_bytes(audio_bytes, content_type=None):
 def _convert_audio_sync(audio_bytes, content_type=None):
     """Synchronous implementation of audio conversion."""
     try:
-        # Detect format from content type
-        audio_format = None
-        if content_type:
-            if 'wav' in content_type:
-                audio_format = 'wav'
-            elif 'mp3' in content_type:
-                audio_format = 'mp3'
-            elif 'webm' in content_type:
-                audio_format = 'webm'
-            elif 'ogg' in content_type:
-                audio_format = 'ogg'
-            elif 'flac' in content_type:
-                audio_format = 'flac'
+        # If FFmpeg is not available, try a direct approach
+        if not FFMPEG_AVAILABLE:
+            # For WAV files, we can try a direct approach without FFmpeg
+            if content_type and 'wav' in content_type:
+                return _direct_wav_processing(audio_bytes)
+            else:
+                raise RuntimeError("FFmpeg is required for processing non-WAV audio formats")
 
-        # Special handling based on format or try auto-detection
-        if audio_format:
-            audio = AudioSegment.from_file(BytesIO(audio_bytes), format=audio_format)
-        else:
-            # Try to auto-detect format
-            audio = AudioSegment.from_file(BytesIO(audio_bytes))
+        # Create a temporary file for the input audio
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.raw') as in_file:
+            in_file.write(audio_bytes)
+            in_file_path = in_file.name
 
-        # Convert to WAV at 16kHz mono
-        audio = audio.set_frame_rate(16000)
-        audio = audio.set_channels(1)
+        # Create a temporary file for the output audio
+        out_file_path = in_file_path + '.wav'
 
-        # Convert to raw PCM bytes
-        wav_io = BytesIO()
-        audio.export(wav_io, format='wav')
-        wav_io.seek(0)
+        try:
+            # Use FFmpeg to convert to WAV at 16kHz mono
+            cmd = [
+                'ffmpeg',
+                '-y',  # Overwrite output files
+                '-i', in_file_path,  # Input file
+                '-ar', '16000',  # Sample rate
+                '-ac', '1',  # Channels (mono)
+                '-f', 'wav',  # Format
+                out_file_path  # Output file
+            ]
 
-        # Skip WAV header (44 bytes) and read raw PCM
-        wav_io.seek(44)
-        pcm_data = wav_io.read()
+            # Run the command
+            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+            # Read the WAV file
+            data, samplerate = sf.read(out_file_path, dtype='float32')
+
+            return data
+
+        finally:
+            # Clean up temporary files
+            for file_path in [in_file_path, out_file_path]:
+                if os.path.exists(file_path):
+                    try:
+                        os.remove(file_path)
+                    except Exception as e:
+                        print(f"Error removing temporary file {file_path}: {e}")
+
+    except Exception as e:
+        print(f"Error converting audio: {e}")
+        raise
+
+
+def _direct_wav_processing(wav_bytes):
+    """Process WAV file directly without using FFmpeg."""
+    try:
+        # Skip WAV header (usually 44 bytes) and read raw PCM
+        # This is a simplified approach that might not work for all WAV files
+        pcm_start = 44
+        pcm_data = wav_bytes[pcm_start:]
 
         # Convert to float32 normalized to [-1, 1]
+        # Assumes 16-bit PCM
         samples = np.frombuffer(pcm_data, dtype=np.int16).astype(np.float32)
         samples = samples / 32768.0
 
         return samples
 
     except Exception as e:
-        print(f"Error converting audio: {e}")
+        print(f"Error in direct WAV processing: {e}")
         raise
 
 

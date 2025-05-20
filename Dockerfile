@@ -1,6 +1,12 @@
-FROM rayproject/ray-ml:2.9.2-py310
+FROM rayproject/ray-ml:latest
 
 WORKDIR /app
+
+# System dependencies - ensuring FFmpeg is installed
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    libsndfile1 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install dependencies
 COPY requirements.txt .

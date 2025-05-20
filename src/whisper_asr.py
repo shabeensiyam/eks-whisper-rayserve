@@ -8,7 +8,6 @@ from ray import serve
 
 
 @serve.deployment(
-    num_replicas=1,
     ray_actor_options={"num_gpus": 1.0},
     max_ongoing_requests=10,
     autoscaling_config={
