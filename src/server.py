@@ -1,17 +1,20 @@
+import os
 import ray
 from ray import serve
+from ray.serve import Application
 
-from .transcription import TranscriptionServer
 from .whisper_asr import WhisperASR
+from .transcription import TranscriptionServer
 
 
-def entrypoint():
-    """Entry point for the Ray Serve application."""
-    # Create deployments with explicit names
+# For Ray 2.46.0, we need to explicitly create an Application
+def create_app():
+    """Create a Ray Serve application."""
+    # Create the deployments
     whisper_deployment = WhisperASR.bind()
     transcription_server = TranscriptionServer.bind()
 
-    # Return the ingress deployment
+    # Return the transcription server as the application entry point
     return transcription_server
 
 
@@ -20,14 +23,16 @@ if __name__ == "__main__":
     if not ray.is_initialized():
         ray.init(address="auto", namespace="whisper-streaming")
 
-    # Print Ray version for debugging
     print(f"Ray version: {ray.__version__}")
 
-    # Start Ray Serve using the simplest API
+    # Start Ray Serve
     serve.start(detached=True)
 
-    # Deploy our application
-    serve.run(entrypoint)
+    # Create the application
+    app = create_app()
+
+    # Deploy the application using serve.run
+    serve.run(app, name="whisper_app")
 
     print("Whisper streaming application deployed!")
     print("Available at: http://localhost:8000")
