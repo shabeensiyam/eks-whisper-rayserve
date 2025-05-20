@@ -1,0 +1,9 @@
+ray[serve]==2.46.0
+openai-whisper==20240930
+torch==2.7.0
+numpy==2.2.6
+starlette==0.46.2
+websockets==15.0.1
+soundfile==0.13.1
+pydub==0.25.1
+scipy==1.15.3

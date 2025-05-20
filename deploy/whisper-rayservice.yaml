@@ -1,0 +1,85 @@
+apiVersion: ray.io/v1
+kind: RayService
+metadata:
+  name: whisper-streaming
+  namespace: default
+spec:
+  deploymentUnhealthySecondThreshold: 300
+  rayClusterConfig:
+    enableInTreeAutoscaling: true
+    headGroupSpec:
+      rayStartParams:
+        dashboard-host: 0.0.0.0
+      template:
+        spec:
+          containers:
+            - env:
+                - name: RAY_GRAFANA_HOST
+                  value: http://kube-prometheus-stack-grafana.kube-prometheus-stack.svc:80
+                - name: RAY_PROMETHEUS_HOST
+                  value: http://kube-prometheus-stack-prometheus.kube-prometheus-stack.svc:9090
+              image: your-registry/whisper-streaming:latest
+              name: ray-head
+              resources:
+                limits:
+                  cpu: "4"
+                  memory: 16Gi
+                requests:
+                  cpu: "2"
+                  memory: 8Gi
+              ports:
+                - containerPort: 6379
+                  name: gcs
+                - containerPort: 8265
+                  name: dashboard
+                - containerPort: 8000
+                  name: serve
+                - containerPort: 10001
+                  name: client
+          serviceAccountName: ray-cluster-service-account
+    workerGroupSpecs:
+      - replicas: 1
+        minReplicas: 1
+        maxReplicas: 10
+        groupName: gpu-worker-group
+        rayStartParams: { }
+        template:
+          spec:
+            containers:
+              - name: ray-worker
+                image: your-registry/whisper-streaming:latest
+                resources:
+                  limits:
+                    cpu: "4"
+                    memory: 16Gi
+                    nvidia.com/gpu: "1"
+                  requests:
+                    cpu: "2"
+                    memory: 8Gi
+                    nvidia.com/gpu: "1"
+            serviceAccountName: ray-cluster-service-account
+  serveConfigV2: |
+    applications:
+      - name: whisper_app
+        import_path: src.server:entrypoint
+        runtime_env: {}
+        route_prefix: /
+        deployments:
+          - name: TranscriptionServer
+            max_ongoing_requests: 100
+            autoscaling_config:
+              target_num_ongoing_requests_per_replica: 5
+              min_replicas: 1
+              max_replicas: 5
+          - name: WhisperASR
+            max_ongoing_requests: 10
+            autoscaling_config:
+              target_num_ongoing_requests_per_replica: 2
+              min_replicas: 1
+              max_replicas: 10
+            ray_actor_options:
+              num_gpus: 1.0
+    proxy_location: HeadOnly
+    http_options:
+      host: 0.0.0.0
+      port: 8000

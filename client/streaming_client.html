@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Whisper Streaming ASR</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            max-width: 900px;
+            margin: 0 auto;
+            background-color: #f8f9fa;
+        }
+
+        h1 {
+            color: #333;
+            border-bottom: 2px solid #ddd;
+            padding-bottom: 10px;
+        }
+
+        .controls {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        button.stop {
+            background-color: #f44336;
+        }
+
+        .transcript {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            min-height: 200px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .status {
+            margin-top: 10px;
+            color: #666;
+            font-style: italic;
+        }
+
+        select, input {
+            padding: 8px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        .options {
+            margin: 15px 0;
+        }
+
+        .segment {
+            padding: 5px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        footer {
+            margin-top: 30px;
+            font-size: 12px;
+            color: #777;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+<h1>Whisper Streaming ASR</h1>
+
+<div class="controls">
+    <div>
+        <button id="startButton">Start Recording</button>
+        <button id="stopButton" class="stop" disabled>Stop Recording</button>
+        <button id="clearButton">Clear Transcript</button>
+    </div>
+
+    <div class="options">
+        <label for="languageSelect">Language:</label>
+        <select id="languageSelect">
+            <option value="">Auto-detect</option>
+            <option value="en">English</option>
+            <option value="fr">French</option>
+            <option value="de">German</option>
+            <option value="es">Spanish</option>
+            <option value="zh">Chinese</option>
+            <option value="ja">Japanese</option>
+            <option value="ko">Korean</option>
+            <option value="ru">Russian</option>
+            <option value="hi">Hindi</option>
+            <option value="ar">Arabic</option>
+        </select>
+
+        <label for="chunkDuration">Chunk Duration (seconds):</label>
+        <input type="number" id="chunkDuration" min="1" max="30" value="5" step="0.5">
+
+        <label for="useContext">
+            <input type="checkbox" id="useContext" checked>
+            Use context from previous chunks
+        </label>
+    </div>
+
+    <div class="status" id="status">Ready to record.</div>
+</div>
+
+<div class="transcript" id="transcript"></div>
+
+<footer>
+    Ray Serve Whisper Streaming ASR - Real-time speech recognition using Whisper
+</footer>
+
+<script>
+    // WebSocket connection
+    let socket = null;
+    let isRecording = false;
+    let audioContext = null;
+    let audioInput = null;
+    let processor = null;
+    let transcriptDiv = document.getElementById('transcript');
+    let statusDiv = document.getElementById('status');
+
+    // UI elements
+    const startButton = document.getElementById('startButton');
+    const stopButton = document.getElementById('stopButton');
+    const clearButton = document.getElementById('clearButton');
+    const languageSelect = document.getElementById('languageSelect');
+    const chunkDuration = document.getElementById('chunkDuration');
+    const useContext = document.getElementById('useContext');
+
+    // Event listeners
+    startButton.addEventListener('click', startRecording);
+    stopButton.addEventListener('click', stopRecording);
+    clearButton.addEventListener('click', clearTranscript);
+
+    // Clear transcript
+    function clearTranscript() {
+        transcriptDiv.innerHTML = '';
+    }
+
+    // Start recording and WebSocket connection
+    async function startRecording() {
+        try {
+            // Create WebSocket connection
+            const host = window.location.hostname || 'localhost';
+            const port = window.location.port || '8000';
+            const wsUrl = `ws://${host}:${port}/stream`;
+            socket = new WebSocket(wsUrl);
+
+            socket.onopen = function () {
+                statusDiv.textContent = 'WebSocket connected, sending initial config...';
+
+                // Send initial configuration
+                const config = {
+                    language: languageSelect.value || null,
+                    chunk_duration: parseFloat(chunkDuration.value),
+                    overlap: 0.5,
+                    use_context: useContext.checked,
+                    save_audio: false
+                };
+
+                socket.send(JSON.stringify(config));
+
+                // Now start audio capture
+                startAudioCapture();
+            };
+
+            socket.onmessage = function (event) {
+                const data = JSON.parse(event.data);
+
+                if (data.text) {
+                    // Display transcription
+                    const p = document.createElement('div');
+                    p.className = 'segment';
+                    p.textContent = data.text;
+                    transcriptDiv.appendChild(p);
+                    transcriptDiv.scrollTop = transcriptDiv.scrollHeight;
+
+                    // Update status with metadata
+                    statusDiv.textContent = `Language: ${data.language || 'unknown'}, Confidence: ${
+                        data.language_probability ? (data.language_probability * 100).toFixed(1) + '%' : 'N/A'
+                    }, Processing time: ${data.processing_time ? data.processing_time.toFixed(2) + 's' : 'N/A'}`;
+                } else if (data.status) {
+                    statusDiv.textContent = `Status: ${data.status}`;
+                }
+            };
+
+            socket.onclose = function (event) {
+                statusDiv.textContent = `WebSocket disconnected: ${event.reason || 'Connection closed'}`;
+                stopRecording();
+            };
+
+            socket.onerror = function (error) {
+                console.error('WebSocket error:', error);
+                statusDiv.textContent = 'WebSocket error occurred';
+                stopRecording();
+            };
+
+            // Disable start button, enable stop button
+            startButton.disabled = true;
+            stopButton.disabled = false;
+
+        } catch (error) {
+            console.error('Error starting recording:', error);
+            statusDiv.textContent = 'Error: ' + error.message;
+        }
+    }
+
+    // Start capturing audio from microphone
+    async function startAudioCapture() {
+        try {
+            // Request microphone access
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    channelCount: 1,
+                    sampleRate: 16000
+                }
+            });
+
+            // Create audio context
+            audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                sampleRate: 16000
+            });
+
+            // Create microphone input
+            audioInput = audioContext.createMediaStreamSource(stream);
+
+            // Create script processor for audio processing
+            const bufferSize = 4096;
+            processor = audioContext.createScriptProcessor(bufferSize, 1, 1);
+
+            // Connect audio input to processor
+            audioInput.connect(processor);
+            processor.connect(audioContext.destination);
+
+            // Set recording flag
+            isRecording = true;
+            statusDiv.textContent = 'Recording... Speak now!';
+
+            // Process audio data
+            processor.onaudioprocess = function (e) {
+                if (!isRecording || !socket || socket.readyState !== WebSocket.OPEN) {
+                    return;
+                }
+
+                // Get audio data from input channel
+                const inputData = e.inputBuffer.getChannelData(0);
+
+                // Send audio data to WebSocket
+                if (socket.readyState === WebSocket.OPEN) {
+                    socket.send(inputData);
+                }
+            };
+
+        } catch (error) {
+            console.error('Error capturing audio:', error);
+            statusDiv.textContent = 'Error capturing audio: ' + error.message;
+            stopRecording();
+        }
+    }
+
+    // Stop recording and close WebSocket
+    function stopRecording() {
+        // Disable audio processing
+        if (processor) {
+            processor.disconnect();
+            processor = null;
+        }
+
+        if (audioInput) {
+            audioInput.disconnect();
+            audioInput = null;
+        }
+
+        if (audioContext && audioContext.state !== 'closed') {
+            audioContext.close().catch(console.error);
+            audioContext = null;
+        }
+
+        // Close WebSocket
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.close();
+        }
+
+        // Reset flags
+        isRecording = false;
+
+        // Update buttons
+        startButton.disabled = false;
+        stopButton.disabled = true;
+
+        statusDiv.textContent = 'Recording stopped.';
+    }
+
+    // Clean up on page unload
+    window.addEventListener('beforeunload', function () {
+        stopRecording();
+    });
+</script>
+</body>
+</html>
