@@ -295,9 +295,13 @@
     async function startRecording() {
         try {
             // Create WebSocket connection
-            const wsUrl = `ws://${window.location.hostname}:${window.location.port || '8000'}/stream`;
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${wsProtocol}//${window.location.hostname}:${window.location.port || '8000'}/stream`;
             socket = new WebSocket(wsUrl);
 
+            streamingStatusDiv.textContent = 'Connecting to server...';
+
+            // Set up connection handlers
             socket.onopen = function () {
                 streamingStatusDiv.textContent = 'WebSocket connected, sending initial config...';
 
@@ -313,42 +317,50 @@
                 };
 
                 socket.send(JSON.stringify(config));
-
-                // Now start audio capture
-                startAudioCapture();
             };
 
             socket.onmessage = function (event) {
-                const data = JSON.parse(event.data);
+                try {
+                    const data = JSON.parse(event.data);
 
-                if (data.status === 'connected') {
-                    streamingStatusDiv.textContent = 'Connected to server. You can speak now.';
-                } else if (data.text) {
-                    // Display transcription
-                    const p = document.createElement('div');
-                    p.className = 'segment';
-                    p.textContent = data.text;
-                    streamingTranscriptDiv.appendChild(p);
-                    streamingTranscriptDiv.scrollTop = streamingTranscriptDiv.scrollHeight;
+                    if (data.status === 'connected') {
+                        streamingStatusDiv.textContent = 'Connected to server. You can speak now.';
+                        // Now start audio capture once we're connected
+                        startAudioCapture();
+                    } else if (data.status === 'error') {
+                        streamingStatusDiv.textContent = `Error: ${data.message}`;
+                        console.error('Server error:', data.message);
+                    } else if (data.text) {
+                        // Display transcription
+                        const p = document.createElement('div');
+                        p.className = 'segment';
+                        p.textContent = data.text;
+                        streamingTranscriptDiv.appendChild(p);
+                        streamingTranscriptDiv.scrollTop = streamingTranscriptDiv.scrollHeight;
 
-                    // Update status with metadata
-                    streamingStatusDiv.textContent = `Language: ${data.language || 'unknown'}, Confidence: ${
-                        data.language_probability ? (data.language_probability * 100).toFixed(1) + '%' : 'N/A'
-                    }, Processing time: ${data.processing_time ? data.processing_time.toFixed(2) + 's' : 'N/A'}`;
-                } else if (data.status) {
-                    streamingStatusDiv.textContent = `Status: ${data.status}`;
+                        // Update status with metadata
+                        streamingStatusDiv.textContent = `Language: ${data.language || 'unknown'}, Confidence: ${
+                            data.language_probability ? (data.language_probability * 100).toFixed(1) + '%' : 'N/A'
+                        }, Processing time: ${data.processing_time ? data.processing_time.toFixed(2) + 's' : 'N/A'}`;
+                    } else if (data.status) {
+                        streamingStatusDiv.textContent = `Status: ${data.status}`;
+                    }
+                } catch (error) {
+                    console.error('Error parsing message:', error, event.data);
+                    streamingStatusDiv.textContent = 'Error parsing server message';
                 }
             };
 
             socket.onclose = function (event) {
-                streamingStatusDiv.textContent = `WebSocket disconnected: ${event.reason || 'Connection closed'}`;
-                stopRecording();
+                console.log(`WebSocket closed: Code ${event.code}, Reason: ${event.reason}`);
+                streamingStatusDiv.textContent = `Connection closed${event.reason ? ': ' + event.reason : ''}`;
+                stopRecording(false); // Don't try to close the socket again
             };
 
             socket.onerror = function (error) {
                 console.error('WebSocket error:', error);
                 streamingStatusDiv.textContent = 'WebSocket error occurred';
-                stopRecording();
+                stopRecording(false); // Don't try to close the socket again
             };
 
             // Disable start button, enable stop button
@@ -382,7 +394,16 @@
 
             // Create script processor for audio processing
             const bufferSize = 4096;
-            processor = audioContext.createScriptProcessor(bufferSize, 1, 1);
+
+            // Use AudioWorkletNode or ScriptProcessorNode based on browser support
+            if (audioContext.audioWorklet) {
+                // Modern approach - requires additional setup
+                // For simplicity, we'll use ScriptProcessorNode for now
+                processor = audioContext.createScriptProcessor(bufferSize, 1, 1);
+            } else {
+                // Fallback for older browsers
+                processor = audioContext.createScriptProcessor(bufferSize, 1, 1);
+            }
 
             // Connect audio input to processor
             audioInput.connect(processor);
@@ -401,9 +422,13 @@
                 // Get audio data from input channel
                 const inputData = e.inputBuffer.getChannelData(0);
 
-                // Send audio data to WebSocket
-                if (socket.readyState === WebSocket.OPEN) {
-                    socket.send(inputData);
+                // Only send if we actually have audio data and the connection is open
+                if (inputData && inputData.length > 0 && socket.readyState === WebSocket.OPEN) {
+                    try {
+                        socket.send(inputData);
+                    } catch (err) {
+                        console.error('Error sending audio data:', err);
+                    }
                 }
             };
 
@@ -415,26 +440,44 @@
     }
 
     // Stop recording and close WebSocket
-    function stopRecording() {
+    function stopRecording(closeSocket = true) {
         // Disable audio processing
         if (processor) {
-            processor.disconnect();
+            try {
+                processor.disconnect();
+            } catch (e) {
+                console.warn('Error disconnecting processor:', e);
+            }
             processor = null;
         }
 
         if (audioInput) {
-            audioInput.disconnect();
+            try {
+                audioInput.disconnect();
+            } catch (e) {
+                console.warn('Error disconnecting audio input:', e);
+            }
             audioInput = null;
         }
 
         if (audioContext && audioContext.state !== 'closed') {
-            audioContext.close().catch(console.error);
+            try {
+                audioContext.close().catch(e => console.warn('Error closing audio context:', e));
+            } catch (e) {
+                console.warn('Error closing audio context:', e);
+            }
             audioContext = null;
         }
 
-        // Close WebSocket
-        if (socket && socket.readyState === WebSocket.OPEN) {
-            socket.close();
+        // Close WebSocket if requested
+        if (closeSocket && socket) {
+            if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+                try {
+                    socket.close(1000, "Client closed connection");
+                } catch (e) {
+                    console.warn('Error closing socket:', e);
+                }
+            }
         }
 
         // Reset flags

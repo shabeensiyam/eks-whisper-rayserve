@@ -3,7 +3,7 @@ import json
 import logging
 import os
 import time
-from typing import Dict, Any, Optional
+from typing import Dict, Optional
 
 import numpy as np
 from fastapi import FastAPI, File, UploadFile, Form, WebSocket, WebSocketDisconnect
@@ -149,132 +149,181 @@ class WhisperService:
 
         Send configuration as JSON to initialize, then stream audio chunks.
         """
-        await websocket.accept()
         connection_id = f"conn_{id(websocket)}"
-        self.active_connections[connection_id] = websocket
 
-        # Initialize buffers and state
-        audio_buffer = []
-        transcription_context = ""
-        config = None
+        # Use flags to track connection state
+        is_connected = False
+        is_closed = False
 
         try:
+            # Accept the connection
+            await websocket.accept()
+            is_connected = True
+            self.active_connections[connection_id] = websocket
+
+            logger.info(f"WebSocket connection established: {connection_id}")
+
+            # Initialize buffers and state
+            audio_buffer = []
+            transcription_context = ""
+            config = None
+
             # Get initial configuration
-            config = await self._get_client_config(websocket)
-            chunk_duration = config.get("chunk_duration", 5.0)
-            sample_rate = config.get("sample_rate", 16000)
-            chunk_size = int(chunk_duration * sample_rate)
-            overlap_seconds = config.get("overlap", 0.5)
-            overlap_samples = int(overlap_seconds * sample_rate)
+            try:
+                config = await self._get_client_config(websocket)
 
-            logger.info(f"WebSocket connection {connection_id} established with config: {config}")
+                # Process configuration
+                chunk_duration = config.get("chunk_duration", 5.0)
+                sample_rate = config.get("sample_rate", 16000)
+                chunk_size = int(chunk_duration * sample_rate)
+                overlap_seconds = config.get("overlap", 0.5)
+                overlap_samples = int(overlap_seconds * sample_rate)
 
-            # Send acknowledgment
-            await websocket.send_json({"status": "connected", "message": "Ready to receive audio"})
+                # Handle empty language string
+                if "language" in config and (config["language"] is None or (isinstance(config["language"], str) and config["language"].strip() == "")):
+                    config["language"] = None
 
-            while True:
-                # Receive data from WebSocket
-                data = await websocket.receive()
+                logger.info(f"WebSocket {connection_id} configuration: {config}")
 
-                if "bytes" in data:
-                    # Process audio bytes
-                    audio_chunk = np.frombuffer(data["bytes"], dtype=np.float32)
-                    audio_buffer.extend(audio_chunk.tolist())
+                # Send acknowledgment
+                if is_connected and not is_closed:
+                    await websocket.send_json({"status": "connected", "message": "Ready to receive audio"})
+            except Exception as e:
+                logger.error(f"Error getting client configuration: {str(e)}")
+                if is_connected and not is_closed:
+                    await websocket.send_json({"status": "error", "message": f"Configuration error: {str(e)}"})
+                    # We continue despite config error - will use defaults
 
-                    # Process when we have enough audio
-                    if len(audio_buffer) >= chunk_size:
-                        # Get chunk and convert to bytes for processing
-                        chunk = np.array(audio_buffer[:chunk_size], dtype=np.float32)
-                        # Convert to bytes (16-bit PCM)
-                        chunk_bytes = (chunk * 32767).astype(np.int16).tobytes()
+            # Main message loop
+            while is_connected and not is_closed:
+                try:
+                    # Use a timeout for receiving messages to avoid blocking forever
+                    data = await asyncio.wait_for(websocket.receive(), timeout=30.0)
 
-                        # Prepare options
-                        options = {
-                            "model_size": config.get("model_size", "base"),
-                            "language": config.get("language"),
-                            "task": config.get("task", "transcribe"),
-                            "initial_prompt": transcription_context if config.get("use_context", True) else None
-                        }
+                    # Handle binary data (audio)
+                    if "bytes" in data:
+                        # Process audio bytes
+                        audio_chunk = np.frombuffer(data["bytes"], dtype=np.float32)
+                        audio_buffer.extend(audio_chunk.tolist())
 
-                        # Process with Whisper ASR
-                        result = await self.whisper_asr.remote(chunk_bytes, options)
+                        # Process when we have enough audio
+                        if len(audio_buffer) >= chunk_size:
+                            # Get chunk and convert to bytes for processing
+                            chunk = np.array(audio_buffer[:chunk_size], dtype=np.float32)
+                            # Convert to bytes (16-bit PCM)
+                            chunk_bytes = (chunk * 32767).astype(np.int16).tobytes()
 
-                        # Update context if using context
-                        if result and "text" in result and result["text"] and config.get("use_context", True):
-                            transcription_context = result["text"][-500:]  # Keep last 500 chars
+                            # Prepare options for the model
+                            options = {
+                                "model_size": config.get("model_size", "base"),
+                                "task": config.get("task", "transcribe"),
+                            }
 
-                        # Send result to client
-                        await websocket.send_json(result)
+                            # Only add language if not None
+                            if config.get("language") is not None:
+                                options["language"] = config["language"]
 
-                        # Slide window with overlap
-                        audio_buffer = audio_buffer[chunk_size - overlap_samples:]
+                            # Only add prompt if using context and have context
+                            if config.get("use_context", True) and transcription_context:
+                                options["initial_prompt"] = transcription_context
 
-                elif "text" in data:
-                    # Handle text commands from client
-                    try:
-                        message = json.loads(data["text"])
-                        command = message.get("command", "")
+                            try:
+                                # Process with Whisper ASR
+                                result = await self.whisper_asr.remote(chunk_bytes, options)
 
-                        if command == "reset":
-                            # Reset buffers
-                            audio_buffer = []
-                            transcription_context = ""
-                            await websocket.send_json({"status": "reset_complete"})
+                                # Update context if using context
+                                if result and "text" in result and result["text"] and config.get("use_context", True):
+                                    transcription_context = result["text"][-500:]  # Keep last 500 chars
 
-                        elif command == "config":
-                            # Update config
-                            new_config = message.get("config", {})
-                            if config is None:
-                                config = new_config
-                            else:
-                                config.update(new_config)
+                                # Send result to client if still connected
+                                if is_connected and not is_closed:
+                                    await websocket.send_json(result)
+                            except Exception as e:
+                                logger.error(f"Error processing audio chunk: {str(e)}")
+                                if is_connected and not is_closed:
+                                    await websocket.send_json({"status": "error", "message": f"Processing error: {str(e)}"})
 
-                            # Recalculate parameters if changed
-                            if "chunk_duration" in new_config or "sample_rate" in new_config:
-                                chunk_duration = config.get("chunk_duration", 5.0)
-                                sample_rate = config.get("sample_rate", 16000)
-                                chunk_size = int(chunk_duration * sample_rate)
+                            # Slide window with overlap
+                            audio_buffer = audio_buffer[chunk_size - overlap_samples:]
 
-                            if "overlap" in new_config:
-                                overlap_seconds = config.get("overlap", 0.5)
-                                overlap_samples = int(overlap_seconds * sample_rate)
+                    # Handle text data (commands)
+                    elif "text" in data:
+                        try:
+                            message = json.loads(data["text"])
+                            command = message.get("command", "")
 
-                            await websocket.send_json({"status": "config_updated"})
+                            if command == "reset":
+                                # Reset buffers
+                                audio_buffer = []
+                                transcription_context = ""
+                                if is_connected and not is_closed:
+                                    await websocket.send_json({"status": "reset_complete"})
 
-                    except json.JSONDecodeError:
-                        logger.warning(f"Received invalid JSON from client: {data['text']}")
-                        await websocket.send_json({"status": "error", "message": "Invalid JSON"})
+                            elif command == "config":
+                                # Update config
+                                new_config = message.get("config", {})
+                                if config is None:
+                                    config = new_config
+                                else:
+                                    config.update(new_config)
+
+                                # Recalculate parameters if changed
+                                if "chunk_duration" in new_config or "sample_rate" in new_config:
+                                    chunk_duration = config.get("chunk_duration", 5.0)
+                                    sample_rate = config.get("sample_rate", 16000)
+                                    chunk_size = int(chunk_duration * sample_rate)
+
+                                if "overlap" in new_config:
+                                    overlap_seconds = config.get("overlap", 0.5)
+                                    overlap_samples = int(overlap_seconds * sample_rate)
+
+                                # Handle empty language string
+                                if "language" in config and (config["language"] is None or (isinstance(config["language"], str) and config["language"].strip() == "")):
+                                    config["language"] = None
+
+                                if is_connected and not is_closed:
+                                    await websocket.send_json({"status": "config_updated"})
+                        except json.JSONDecodeError:
+                            logger.warning(f"Received invalid JSON from client: {data['text']}")
+                            if is_connected and not is_closed:
+                                await websocket.send_json({"status": "error", "message": "Invalid JSON"})
+
+                    # Handle close messages
+                    elif data.get("type") == "websocket.disconnect":
+                        logger.info(f"Received disconnect message for {connection_id}")
+                        is_closed = True
+                        break
+
+                except asyncio.TimeoutError:
+                    # This is normal - just a timeout on receive
+                    continue
+                except WebSocketDisconnect:
+                    logger.info(f"WebSocket disconnected: {connection_id}")
+                    is_closed = True
+                    break
+                except Exception as e:
+                    logger.error(f"Error in WebSocket message loop: {str(e)}")
+                    if is_connected and not is_closed:
+                        try:
+                            await websocket.send_json({"status": "error", "message": str(e)})
+                        except:
+                            pass
+                    is_closed = True
+                    break
 
         except WebSocketDisconnect:
-            logger.info(f"WebSocket disconnected: {connection_id}")
+            logger.info(f"WebSocket disconnected during setup: {connection_id}")
+            is_closed = True
         except Exception as e:
             logger.error(f"Error in WebSocket handler: {str(e)}")
-            try:
-                await websocket.send_json({"status": "error", "message": str(e)})
-            except:
-                pass
+            if is_connected and not is_closed:
+                try:
+                    await websocket.send_json({"status": "error", "message": str(e)})
+                except:
+                    pass
+            is_closed = True
         finally:
             # Clean up connection
             if connection_id in self.active_connections:
                 del self.active_connections[connection_id]
-
-    async def _get_client_config(self, websocket: WebSocket) -> Dict[str, Any]:
-        """Get initial configuration from WebSocket client."""
-        try:
-            # Wait for initial config with timeout
-            data = await asyncio.wait_for(websocket.receive_text(), timeout=5.0)
-            config = json.loads(data)
-            logger.info(f"Received client config: {config}")
-            return config
-        except (asyncio.TimeoutError, json.JSONDecodeError) as e:
-            logger.warning(f"Failed to get client config: {str(e)}, using defaults")
-            # Default configuration
-            return {
-                "chunk_duration": 5.0,
-                "sample_rate": 16000,
-                "overlap": 0.5,
-                "model_size": "base",
-                "language": None,
-                "task": "transcribe",
-                "use_context": True
-            }
+            logger.info(f"WebSocket connection closed: {connection_id}")
