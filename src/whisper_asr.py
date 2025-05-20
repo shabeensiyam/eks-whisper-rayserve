@@ -83,7 +83,6 @@ class WhisperASR:
             Dictionary with transcription results
         """
         start_time = time.time()
-        temp_file_path = None
 
         # Parse options
         options = self.default_options.copy()
@@ -98,65 +97,20 @@ class WhisperASR:
         model_size = options.pop("model_size", "base")
 
         try:
-            # Add detailed logging
-            logger.info(f"Audio data type: {type(audio_data)}, size: {len(audio_data)} bytes")
-            if len(audio_data) > 20:
-                # Log a sample of the data
-                import binascii
-                logger.info(f"First 20 bytes hex: {binascii.hexlify(audio_data[:20])}")
-
-            # Handle audio data based on its format
+            # If audio_data is bytes, save to temp file
             if isinstance(audio_data, bytes):
-                import numpy as np
-                from scipy.io import wavfile
-
-                # Create a temporary file for the audio
                 with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
                     temp_file_path = temp_file.name
-
-                    # Check if this looks like raw float32 data from WebSocket
-                    if len(audio_data) % 4 == 0:  # float32 is 4 bytes per sample
-                        try:
-                            # Try to interpret as float32 data (browser's AudioBuffer)
-                            samples = np.frombuffer(audio_data, dtype=np.float32)
-
-                            # Create properly formatted WAV file
-                            sample_rate = 16000  # Common sample rate for speech recognition
-
-                            # Normalize if needed (usually the browser sends normalized data)
-                            max_val = max(abs(samples.min()), abs(samples.max()))
-                            if max_val > 0:
-                                if max_val > 1.0:
-                                    samples = samples / max_val  # Normalize if somehow > 1.0
-
-                            # Convert float32 samples to int16 for WAV file
-                            samples_int16 = (samples * 32767).astype(np.int16)
-
-                            # Write WAV file with proper headers
-                            wavfile.write(temp_file_path, sample_rate, samples_int16)
-                            logger.info(f"Converted WebSocket float32 audio data to WAV: {temp_file_path}")
-                        except Exception as e:
-                            # Log the conversion error
-                            logger.warning(f"Float32 conversion failed: {e}, trying direct write")
-
-                            # Close the current file and create a new one
-                            temp_file.close()
-                            with open(temp_file_path, 'wb') as f:
-                                f.write(audio_data)
-                            logger.info(f"Wrote audio data directly to file: {temp_file_path}")
-                    else:
-                        # This is likely already a WAV file (from HTTP upload)
-                        temp_file.write(audio_data)
-                        logger.info(f"Wrote audio file data to: {temp_file_path}")
+                    temp_file.write(audio_data)
             else:
-                # Handle numpy array case
+                # Handle numpy array case if needed
                 raise ValueError("Audio data must be bytes")
 
             # Load appropriate model
             model = self._load_model(model_size)
 
             # Perform transcription
-            logger.info(f"Starting transcription with {model_size} model on file: {temp_file_path}")
+            logger.info(f"Starting transcription with {model_size} model")
             result = model.transcribe(temp_file_path, **options)
             processing_time = time.time() - start_time
             logger.info(f"Transcription completed in {processing_time:.2f} seconds")
@@ -189,11 +143,8 @@ class WhisperASR:
             }
         finally:
             # Clean up temporary file
-            if temp_file_path and os.path.exists(temp_file_path):
-                try:
-                    os.unlink(temp_file_path)
-                except Exception as e:
-                    logger.warning(f"Error removing temp file {temp_file_path}: {e}")
+            if 'temp_file_path' in locals() and os.path.exists(temp_file_path):
+                os.unlink(temp_file_path)
 
     async def __call__(self, audio_data, options=None):
         """
