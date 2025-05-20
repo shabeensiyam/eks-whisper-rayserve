@@ -10,3 +10,5 @@ scipy==1.15.3
 uvicorn==0.30.0
 python-multipart==0.0.9
 ffmpeg-python==0.2.0
+uvicorn==0.34.2
+fastapi==0.115.12

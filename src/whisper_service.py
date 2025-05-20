@@ -1,13 +1,14 @@
 import asyncio
 import json
 import logging
+import os
 import time
 from typing import Dict, Any, Optional
 
 import numpy as np
 from fastapi import FastAPI, File, UploadFile, Form, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 from ray import serve
 from ray.serve.handle import DeploymentHandle
 
@@ -68,6 +69,16 @@ class WhisperService:
                 "/redoc": "ReDoc API documentation"
             }
         }
+
+    # Add this method to the WhisperService class
+    @app.get("/client", response_class=HTMLResponse)
+    async def get_client(self):
+        """Serve the HTML client page."""
+        # Read the HTML file
+        html_file_path = os.path.join(os.path.dirname(__file__), "client/whisper_client.html")
+        with open(html_file_path, "r") as f:
+            html_content = f.read()
+        return html_content
 
     @app.get("/health")
     async def health(self):
