@@ -1,9 +1,8 @@
-import os
 import ray
 from ray import serve
 
-from .whisper_asr import WhisperASR
 from .transcription import TranscriptionServer
+from .whisper_asr import WhisperASR
 
 
 def entrypoint():
@@ -21,14 +20,14 @@ if __name__ == "__main__":
     if not ray.is_initialized():
         ray.init(address="auto", namespace="whisper-streaming")
 
-    # Start Ray Serve and deploy the application
-    # Updated the parameters to match Ray Serve 2.46.0 API
-    serve.run(
-        entrypoint,
-        name="whisper_app",
-        route_prefix="/",
-        http_options={"host": "0.0.0.0", "port": 8000}
-    )
+    # Print Ray version for debugging
+    print(f"Ray version: {ray.__version__}")
+
+    # Start Ray Serve using the simplest API
+    serve.start(detached=True)
+
+    # Deploy our application
+    serve.run(entrypoint)
 
     print("Whisper streaming application deployed!")
     print("Available at: http://localhost:8000")
