@@ -27,10 +27,10 @@ logger = logging.getLogger("transcription_server")
     }
 )
 class TranscriptionServer:
-    def __init__(self):
+    def __init__(self, transcriber: DeploymentHandle):
         """Initialize the transcription server."""
         # Get reference to the ASR model deployment
-        self.asr_handle: DeploymentHandle = serve.get_deployment_handle("WhisperASR")
+        self.asr_handle: DeploymentHandle = transcriber
 
         # Configure server
         self.sample_rate = 16000  # Expected audio sample rate
