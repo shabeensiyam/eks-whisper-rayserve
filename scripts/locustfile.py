@@ -1,9 +1,9 @@
-import time
 import json
 import logging
 import os
+import time
+
 import websocket
-import numpy as np
 from locust import User, task, between
 
 # Set up logging

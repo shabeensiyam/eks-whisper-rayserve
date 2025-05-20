@@ -1,9 +1,9 @@
 import tempfile
 import time
-import os
+
 import numpy as np
-import whisper
 import torch
+import whisper
 from ray import serve
 
 
@@ -46,7 +46,7 @@ class WhisperASR:
 
         print("Whisper model loaded successfully")
 
-    async def transcribe(self, audio_data, language=None, prompt=None, additional_options=None):
+    async def transcribe(self, audio_data: [bytes, np.ndarray], language=None, prompt=None, additional_options=None):
         """
         Transcribe audio data to text.
 
