@@ -38,3 +38,12 @@ if __name__ == "__main__":
     print("  - / (GET): Service information")
     print("  - /transcribe (POST): Audio file transcription")
     print("  - /stream (WebSocket): Real-time audio streaming")
+
+    # Keep the process running to see logs
+    try:
+        print("Press Ctrl+C to exit...")
+        while True:
+            import time
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("Shutting down...")

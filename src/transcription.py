@@ -98,7 +98,7 @@ class TranscriptionServer:
                 status_code=500
             )
 
-    async def websocket_endpoint(self, websocket: WebSocket):
+    async def websocket_endpoint(self, websocket: WebSocket):curl
         """Handle WebSocket connections for streaming audio."""
         # Check if we can accept the connection
         if self.active_connections >= self.max_connections:
