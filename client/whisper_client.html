@@ -461,7 +461,13 @@
         const formData = new FormData();
         formData.append('file', file);
         formData.append('model_size', document.getElementById('uploadModelSelect').value);
-        formData.append('language', document.getElementById('uploadLanguageSelect').value);
+
+        // Handle empty language value properly - don't send it if it's empty
+        const languageValue = document.getElementById('uploadLanguageSelect').value;
+        if (languageValue && languageValue.trim() !== "") {
+            formData.append('language', languageValue);
+        }
+
         formData.append('task', document.getElementById('taskSelect').value);
 
         // Disable upload button

@@ -63,6 +63,8 @@ class WhisperService:
             "version": "1.0.0",
             "endpoints": {
                 "/": "This information",
+                "/health": "Health check",
+                "/client": "HTML client for real-time audio streaming",
                 "/transcribe": "Transcribe audio file via HTTP POST",
                 "/stream": "WebSocket endpoint for real-time audio streaming",
                 "/docs": "OpenAPI documentation",
@@ -109,12 +111,21 @@ class WhisperService:
             file_size = len(audio_data) / (1024 * 1024)  # Size in MB
             logger.info(f"Received audio file: {file.filename}, size: {file_size:.2f} MB")
 
+            # Handle empty language string - convert to None for auto-detection
+            if language is not None and language.strip() == "":
+                language = None
+
+            logger.info(f"Processing with model_size={model_size}, language={language}, task={task}")
+
             # Prepare options
             options = {
                 "model_size": model_size,
-                "language": language,
                 "task": task,
             }
+
+            # Only add language if it's not None
+            if language is not None:
+                options["language"] = language
 
             # Process with Whisper ASR
             result = await self.whisper_asr.remote(audio_data, options)
