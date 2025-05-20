@@ -13,7 +13,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import WebSocketRoute, Route
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
-from streaming import convert_audio_bytes, write_audio_file
+from .streaming import convert_audio_bytes, write_audio_file
 
 logger = logging.getLogger("transcription_server")
 
