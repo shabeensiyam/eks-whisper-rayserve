@@ -1,10 +1,8 @@
-import os
 import ray
 from ray import serve
-from ray.serve import Application
 
-from .whisper_asr import WhisperASR
 from .transcription import TranscriptionServer
+from .whisper_asr import WhisperASR
 
 
 # For Ray 2.46.0, we need to explicitly create an Application
