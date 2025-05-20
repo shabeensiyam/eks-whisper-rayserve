@@ -1,13 +1,21 @@
+# Configure logger
+import logging
+import os
 import tempfile
 import time
 
-import numpy as np
 import torch
-import whisper
 from ray import serve
+
+logger = logging.getLogger("whisper_service")
+logger.setLevel(logging.INFO)
+handler = logging.StreamHandler()
+handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+logger.addHandler(handler)
 
 
 @serve.deployment(
+    name="WhisperASR",
     ray_actor_options={"num_gpus": 1.0},
     max_ongoing_requests=10,
     autoscaling_config={
@@ -17,15 +25,15 @@ from ray import serve
     }
 )
 class WhisperASR:
-    def __init__(self, model_name="large-v3"):
-        """Initialize the Whisper ASR model."""
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        print(f"Loading Whisper model {model_name} on {self.device}")
+    def __init__(self):
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        logger.info(f"Initializing Whisper ASR on device: {self.device}")
 
-        # Load the model
-        self.model = whisper.load_model(model_name).to(self.device)
+        # Initialize with base model - will be replaced on first request
+        self.models = {}
+        self.current_model_size = None
 
-        # Set default options
+        # Default options
         self.default_options = {
             "task": "transcribe",
             "language": None,  # Auto-detect language
@@ -43,9 +51,25 @@ class WhisperASR:
             "no_speech_threshold": 0.6,
         }
 
-        print("Whisper model loaded successfully")
+        # Load the base model by default
+        self._load_model("base")
+        logger.info("Whisper ASR initialized and ready")
 
-    async def transcribe(self, audio_data: [bytes, np.ndarray], language=None, prompt=None, additional_options=None):
+    def _load_model(self, model_size):
+        """Load a Whisper model of the specified size if not already loaded"""
+        if model_size not in self.models:
+            # Import whisper here to avoid importing it in the parent process
+            import whisper
+
+            logger.info(f"Loading Whisper model: {model_size}")
+            start_time = time.time()
+            self.models[model_size] = whisper.load_model(model_size, device=self.device)
+            logger.info(f"Model {model_size} loaded in {time.time() - start_time:.2f} seconds")
+
+        self.current_model_size = model_size
+        return self.models[model_size]
+
+    async def transcribe(self, audio_data, language=None, prompt=None, additional_options=None):
         """
         Transcribe audio data to text.
 
@@ -60,7 +84,7 @@ class WhisperASR:
         """
         start_time = time.time()
 
-        # Set up options
+        # Parse options
         options = self.default_options.copy()
         if language:
             options["language"] = language
@@ -69,22 +93,29 @@ class WhisperASR:
         if additional_options:
             options.update(additional_options)
 
+        # Determine model size
+        model_size = options.pop("model_size", "base")
+
         try:
-            # Use torch.amp for better performance with mixed precision
-            with torch.amp.autocast(device_type=self.device.type, enabled=options.get("fp16", False)):
-                # If audio_data is bytes, convert to numpy array
-                if isinstance(audio_data, bytes):
-                    with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as temp_file:
-                        temp_file.write(audio_data)
-                        temp_file.flush()
-                        result = self.model.transcribe(temp_file.name, **options)
-                else:
-                    # If it's already a numpy array
-                    result = self.model.transcribe(audio_data, **options)
+            # If audio_data is bytes, save to temp file
+            if isinstance(audio_data, bytes):
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
+                    temp_file_path = temp_file.name
+                    temp_file.write(audio_data)
+            else:
+                # Handle numpy array case if needed
+                raise ValueError("Audio data must be bytes")
 
+            # Load appropriate model
+            model = self._load_model(model_size)
+
+            # Perform transcription
+            logger.info(f"Starting transcription with {model_size} model")
+            result = model.transcribe(temp_file_path, **options)
             processing_time = time.time() - start_time
+            logger.info(f"Transcription completed in {processing_time:.2f} seconds")
 
-            # Format response to be consistent
+            # Format response
             response = {
                 "text": result["text"].strip(),
                 "language": result.get("language", ""),
@@ -104,12 +135,16 @@ class WhisperASR:
             return response
 
         except Exception as e:
-            print(f"Error in transcription: {e}")
+            logger.error(f"Error in transcription: {e}")
             return {
                 "error": str(e),
                 "text": "",
                 "processing_time": time.time() - start_time
             }
+        finally:
+            # Clean up temporary file
+            if 'temp_file_path' in locals() and os.path.exists(temp_file_path):
+                os.unlink(temp_file_path)
 
     async def __call__(self, audio_data, options=None):
         """
@@ -127,5 +162,5 @@ class WhisperASR:
             audio_data,
             language=options.get("language"),
             prompt=options.get("prompt"),
-            additional_options=options.get("whisper_options")
+            additional_options=options
         )

@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Whisper ASR Client</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            max-width: 900px;
+            margin: 0 auto;
+            background-color: #f8f9fa;
+        }
+
+        h1 {
+            color: #333;
+            border-bottom: 2px solid #ddd;
+            padding-bottom: 10px;
+        }
+
+        .panel {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+
+        button.stop {
+            background-color: #f44336;
+        }
+
+        .upload-panel {
+            margin-top: 20px;
+            border-top: 1px solid #ddd;
+            padding-top: 20px;
+        }
+
+        .transcript {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            min-height: 200px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .status {
+            margin-top: 10px;
+            color: #666;
+            font-style: italic;
+        }
+
+        select, input {
+            padding: 8px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        .options {
+            margin: 15px 0;
+        }
+
+        .segment {
+            padding: 5px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+        }
+
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            background-color: #f1f1f1;
+            border-radius: 8px 8px 0 0;
+            margin-right: 5px;
+        }
+
+        .tab.active {
+            background-color: white;
+            border: 1px solid #ddd;
+            border-bottom: none;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        footer {
+            margin-top: 30px;
+            font-size: 12px;
+            color: #777;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+<h1>Whisper ASR Client</h1>
+
+<div class="tabs">
+    <div class="tab active" data-tab="streaming">Live Streaming</div>
+    <div class="tab" data-tab="upload">File Upload</div>
+</div>
+
+<div id="streaming-panel" class="tab-content active">
+    <div class="panel">
+        <div>
+            <button id="startButton">Start Recording</button>
+            <button id="stopButton" class="stop" disabled>Stop Recording</button>
+            <button id="clearButton">Clear Transcript</button>
+        </div>
+
+        <div class="options">
+            <label for="modelSelect">Model Size:</label>
+            <select id="modelSelect">
+                <option value="tiny">Tiny</option>
+                <option value="base" selected>Base</option>
+                <option value="small">Small</option>
+                <option value="medium">Medium</option>
+                <option value="large">Large</option>
+            </select>
+
+            <label for="languageSelect">Language:</label>
+            <select id="languageSelect">
+                <option value="">Auto-detect</option>
+                <option value="en">English</option>
+                <option value="fr">French</option>
+                <option value="de">German</option>
+                <option value="es">Spanish</option>
+                <option value="zh">Chinese</option>
+                <option value="ja">Japanese</option>
+                <option value="ko">Korean</option>
+                <option value="ru">Russian</option>
+                <option value="hi">Hindi</option>
+                <option value="ar">Arabic</option>
+            </select>
+
+            <label for="chunkDuration">Chunk Duration (seconds):</label>
+            <input type="number" id="chunkDuration" min="1" max="30" value="5" step="0.5">
+
+            <label for="useContext">
+                <input type="checkbox" id="useContext" checked>
+                Use context from previous chunks
+            </label>
+        </div>
+
+        <div class="status" id="streamingStatus">Ready to record.</div>
+    </div>
+
+    <div class="transcript" id="streamingTranscript"></div>
+</div>
+
+<div id="upload-panel" class="tab-content">
+    <div class="panel">
+        <h2>File Upload</h2>
+        <form id="uploadForm">
+            <div>
+                <label for="audioFile">Select Audio File:</label>
+                <input type="file" id="audioFile" accept="audio/*">
+            </div>
+
+            <div class="options">
+                <label for="uploadModelSelect">Model Size:</label>
+                <select id="uploadModelSelect" name="model_size">
+                    <option value="tiny">Tiny</option>
+                    <option value="base" selected>Base</option>
+                    <option value="small">Small</option>
+                    <option value="medium">Medium</option>
+                    <option value="large">Large</option>
+                </select>
+
+                <label for="uploadLanguageSelect">Language:</label>
+                <select id="uploadLanguageSelect" name="language">
+                    <option value="">Auto-detect</option>
+                    <option value="en">English</option>
+                    <option value="fr">French</option>
+                    <option value="de">German</option>
+                    <option value="es">Spanish</option>
+                    <option value="zh">Chinese</option>
+                    <option value="ja">Japanese</option>
+                    <option value="ko">Korean</option>
+                    <option value="ru">Russian</option>
+                    <option value="hi">Hindi</option>
+                    <option value="ar">Arabic</option>
+                </select>
+
+                <label for="taskSelect">Task:</label>
+                <select id="taskSelect" name="task">
+                    <option value="transcribe" selected>Transcribe</option>
+                    <option value="translate">Translate to English</option>
+                </select>
+            </div>
+
+            <div>
+                <button type="submit" id="uploadButton">Transcribe</button>
+            </div>
+        </form>
+
+        <div class="status" id="uploadStatus"></div>
+    </div>
+
+    <div class="transcript" id="uploadTranscript"></div>
+</div>
+
+<footer>
+    Whisper ASR Client - Using Ray Serve and OpenAI's Whisper
+</footer>
+
+<script>
+    // Tab switching functionality
+    document.querySelectorAll('.tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            // Remove active class from all tabs and content
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+            // Add active class to clicked tab
+            tab.classList.add('active');
+
+            // Show corresponding content
+            const tabId = tab.getAttribute('data-tab');
+            document.getElementById(tabId + '-panel').classList.add('active');
+        });
+    });
+
+    // WebSocket functionality
+    let socket = null;
+    let isRecording = false;
+    let audioContext = null;
+    let audioInput = null;
+    let processor = null;
+    let streamingTranscriptDiv = document.getElementById('streamingTranscript');
+    let streamingStatusDiv = document.getElementById('streamingStatus');
+
+    // UI elements
+    const startButton = document.getElementById('startButton');
+    const stopButton = document.getElementById('stopButton');
+    const clearButton = document.getElementById('clearButton');
+    const modelSelect = document.getElementById('modelSelect');
+    const languageSelect = document.getElementById('languageSelect');
+    const chunkDuration = document.getElementById('chunkDuration');
+    const useContext = document.getElementById('useContext');
+
+    // Event listeners for streaming
+    startButton.addEventListener('click', startRecording);
+    stopButton.addEventListener('click', stopRecording);
+    clearButton.addEventListener('click', clearTranscript);
+
+    // Event listeners for file upload
+    const uploadForm = document.getElementById('uploadForm');
+    const uploadButton = document.getElementById('uploadButton');
+    const uploadStatus = document.getElementById('uploadStatus');
+    const uploadTranscript = document.getElementById('uploadTranscript');
+
+    uploadForm.addEventListener('submit', handleFileUpload);
+
+    // Clear transcript
+    function clearTranscript() {
+        streamingTranscriptDiv.innerHTML = '';
+    }
+
+    // Start recording and WebSocket connection
+    async function startRecording() {
+        try {
+            // Create WebSocket connection
+            const wsUrl = `ws://${window.location.hostname}:${window.location.port || '8000'}/stream`;
+            socket = new WebSocket(wsUrl);
+
+            socket.onopen = function () {
+                streamingStatusDiv.textContent = 'WebSocket connected, sending initial config...';
+
+                // Send initial configuration
+                const config = {
+                    model_size: modelSelect.value,
+                    language: languageSelect.value || null,
+                    chunk_duration: parseFloat(chunkDuration.value),
+                    sample_rate: 16000,
+                    overlap: 0.5,
+                    use_context: useContext.checked,
+                    task: 'transcribe'
+                };
+
+                socket.send(JSON.stringify(config));
+
+                // Now start audio capture
+                startAudioCapture();
+            };
+
+            socket.onmessage = function (event) {
+                const data = JSON.parse(event.data);
+
+                if (data.status === 'connected') {
+                    streamingStatusDiv.textContent = 'Connected to server. You can speak now.';
+                } else if (data.text) {
+                    // Display transcription
+                    const p = document.createElement('div');
+                    p.className = 'segment';
+                    p.textContent = data.text;
+                    streamingTranscriptDiv.appendChild(p);
+                    streamingTranscriptDiv.scrollTop = streamingTranscriptDiv.scrollHeight;
+
+                    // Update status with metadata
+                    streamingStatusDiv.textContent = `Language: ${data.language || 'unknown'}, Confidence: ${
+                        data.language_probability ? (data.language_probability * 100).toFixed(1) + '%' : 'N/A'
+                    }, Processing time: ${data.processing_time ? data.processing_time.toFixed(2) + 's' : 'N/A'}`;
+                } else if (data.status) {
+                    streamingStatusDiv.textContent = `Status: ${data.status}`;
+                }
+            };
+
+            socket.onclose = function (event) {
+                streamingStatusDiv.textContent = `WebSocket disconnected: ${event.reason || 'Connection closed'}`;
+                stopRecording();
+            };
+
+            socket.onerror = function (error) {
+                console.error('WebSocket error:', error);
+                streamingStatusDiv.textContent = 'WebSocket error occurred';
+                stopRecording();
+            };
+
+            // Disable start button, enable stop button
+            startButton.disabled = true;
+            stopButton.disabled = false;
+
+        } catch (error) {
+            console.error('Error starting recording:', error);
+            streamingStatusDiv.textContent = 'Error: ' + error.message;
+        }
+    }
+
+    // Start capturing audio from microphone
+    async function startAudioCapture() {
+        try {
+            // Request microphone access
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    channelCount: 1,
+                    sampleRate: 16000
+                }
+            });
+
+            // Create audio context
+            audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                sampleRate: 16000
+            });
+
+            // Create microphone input
+            audioInput = audioContext.createMediaStreamSource(stream);
+
+            // Create script processor for audio processing
+            const bufferSize = 4096;
+            processor = audioContext.createScriptProcessor(bufferSize, 1, 1);
+
+            // Connect audio input to processor
+            audioInput.connect(processor);
+            processor.connect(audioContext.destination);
+
+            // Set recording flag
+            isRecording = true;
+            streamingStatusDiv.textContent = 'Recording... Speak now!';
+
+            // Process audio data
+            processor.onaudioprocess = function (e) {
+                if (!isRecording || !socket || socket.readyState !== WebSocket.OPEN) {
+                    return;
+                }
+
+                // Get audio data from input channel
+                const inputData = e.inputBuffer.getChannelData(0);
+
+                // Send audio data to WebSocket
+                if (socket.readyState === WebSocket.OPEN) {
+                    socket.send(inputData);
+                }
+            };
+
+        } catch (error) {
+            console.error('Error capturing audio:', error);
+            streamingStatusDiv.textContent = 'Error capturing audio: ' + error.message;
+            stopRecording();
+        }
+    }
+
+    // Stop recording and close WebSocket
+    function stopRecording() {
+        // Disable audio processing
+        if (processor) {
+            processor.disconnect();
+            processor = null;
+        }
+
+        if (audioInput) {
+            audioInput.disconnect();
+            audioInput = null;
+        }
+
+        if (audioContext && audioContext.state !== 'closed') {
+            audioContext.close().catch(console.error);
+            audioContext = null;
+        }
+
+        // Close WebSocket
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.close();
+        }
+
+        // Reset flags
+        isRecording = false;
+
+        // Update buttons
+        startButton.disabled = false;
+        stopButton.disabled = true;
+
+        streamingStatusDiv.textContent = 'Recording stopped.';
+    }
+
+    // Handle file upload
+    async function handleFileUpload(event) {
+        event.preventDefault();
+
+        const fileInput = document.getElementById('audioFile');
+        const file = fileInput.files[0];
+
+        if (!file) {
+            uploadStatus.textContent = 'Please select an audio file';
+            return;
+        }
+
+        // Create form data
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('model_size', document.getElementById('uploadModelSelect').value);
+        formData.append('language', document.getElementById('uploadLanguageSelect').value);
+        formData.append('task', document.getElementById('taskSelect').value);
+
+        // Disable upload button
+        uploadButton.disabled = true;
+        uploadStatus.textContent = 'Uploading and processing audio...';
+
+        try {
+            // Send request to server
+            const response = await fetch('/transcribe', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                throw new Error(`Server responded with status: ${response.status}`);
+            }
+
+            // Parse result
+            const result = await response.json();
+
+            // Display transcription
+            uploadTranscript.innerHTML = '';
+
+            if (result.transcription) {
+                // For backward compatibility
+                uploadTranscript.textContent = result.transcription;
+            } else if (result.text) {
+                uploadTranscript.textContent = result.text;
+            } else {
+                uploadTranscript.textContent = 'No transcription returned';
+            }
+
+            // Update status
+            uploadStatus.textContent = `Transcription complete. Language: ${result.language || 'unknown'}, Processing time: ${
+                result.processing_time ? result.processing_time.toFixed(2) + 's' : 'N/A'
+            }`;
+
+        } catch (error) {
+            console.error('Error uploading file:', error);
+            uploadStatus.textContent = 'Error: ' + error.message;
+        } finally {
+            // Re-enable upload button
+            uploadButton.disabled = false;
+        }
+    }
+
+    // Clean up on page unload
+    window.addEventListener('beforeunload', function () {
+        stopRecording();
+    });
+</script>
+</body>
+</html>

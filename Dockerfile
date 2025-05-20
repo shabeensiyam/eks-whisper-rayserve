@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y \
 # Copy requirements and install dependencies
 COPY requirements.txt .
 RUN pip install -r requirements.txt
+RUN python -c "import whisper; whisper.load_model('base')"
 
 # Copy source code
 COPY src/ /app/src/

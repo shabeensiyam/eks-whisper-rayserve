@@ -18,7 +18,7 @@ spec:
                   value: http://kube-prometheus-stack-grafana.kube-prometheus-stack.svc:80
                 - name: RAY_PROMETHEUS_HOST
                   value: http://kube-prometheus-stack-prometheus.kube-prometheus-stack.svc:9090
-              image: your-registry/whisper-streaming:latest
+              image: YOUR_REGISTRY/whisper-streaming:latest
               name: ray-head
               resources:
                 limits:
@@ -47,7 +47,7 @@ spec:
           spec:
             containers:
               - name: ray-worker
-                image: your-registry/whisper-streaming:latest
+                image: YOUR_REGISTRY/whisper-streaming:latest
                 resources:
                   limits:
                     cpu: "4"
@@ -60,26 +60,91 @@ spec:
             serviceAccountName: ray-cluster-service-account
   serveConfigV2: |
     applications:
-      - name: whisper_app
-        import_path: src.server:entrypoint
+      - name: whisper_streaming
+        import_path: app:create_app
         runtime_env: {}
         route_prefix: /
-        deployments:
-          - name: TranscriptionServer
-            max_ongoing_requests: 100
-            autoscaling_config:
-              target_num_ongoing_requests_per_replica: 5
-              min_replicas: 1
-              max_replicas: 5
-          - name: WhisperASR
-            max_ongoing_requests: 10
-            autoscaling_config:
-              target_num_ongoing_requests_per_replica: 2
-              min_replicas: 1
-              max_replicas: 10
-            ray_actor_options:
-              num_gpus: 1.0
     proxy_location: HeadOnly
     http_options:
       host: 0.0.0.0
       port: 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: whisper-streaming-serve-svc
+  namespace: default
+spec:
+  ports:
+    - name: http
+      port: 8000
+      protocol: TCP
+      targetPort: 8000
+  selector:
+    component: ray-head
+    rayservice: whisper-streaming
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: whisper-streaming-head-svc
+  namespace: default
+spec:
+  ports:
+    - name: gcs
+      port: 6379
+      protocol: TCP
+      targetPort: 6379
+    - name: dashboard
+      port: 8265
+      protocol: TCP
+      targetPort: 8265
+    - name: client
+      port: 10001
+      protocol: TCP
+      targetPort: 10001
+    - name: metrics
+      port: 8080
+      protocol: TCP
+      targetPort: 8080
+    - name: serve
+      port: 8000
+      protocol: TCP
+      targetPort: 8000
+  selector:
+    component: ray-head
+    rayservice: whisper-streaming
+  type: ClusterIP
+---
+# Service account for Ray clusters
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ray-cluster-service-account
+  namespace: default
+---
+# RBAC for the service account
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ray-cluster-role
+  namespace: default
+rules:
+  - apiGroups: [ "" ]
+    resources: [ "pods", "services" ]
+    verbs: [ "get", "watch", "list", "create", "delete", "patch" ]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ray-cluster-role-binding
+  namespace: default
+subjects:
+  - kind: ServiceAccount
+    name: ray-cluster-service-account
+    namespace: default
+roleRef:
+  kind: Role
+  name: ray-cluster-role
+  apiGroup: rbac.authorization.k8s.io
