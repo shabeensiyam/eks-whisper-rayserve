@@ -210,6 +210,10 @@ class TranscriptionServer:
                 "save_audio": False
             }
 
-    async def __call__(self, request: Request):
-        """Entry point for Ray Serve."""
-        return await self.app(request)
+    # IMPORTANT: This fixed method correctly implements the ASGI interface expected by Starlette
+    async def __call__(self, scope, receive, send):
+        """
+        ASGI entry point for Ray Serve.
+        Properly handles the ASGI interface expected by Starlette.
+        """
+        await self.app(scope, receive, send)
