@@ -10,7 +10,7 @@ def create_app():
     """Create a Ray Serve application."""
     # Create the deployments
     whisper_deployment = WhisperASR.bind()
-    transcription_server = TranscriptionServer.bind()
+    transcription_server = TranscriptionServer.bind(whisper_deployment)
 
     # Return the transcription server as the application entry point
     return transcription_server
