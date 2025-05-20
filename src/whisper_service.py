@@ -74,8 +74,8 @@ class WhisperService:
     @app.get("/client", response_class=HTMLResponse)
     async def get_client(self):
         """Serve the HTML client page."""
-        # Read the HTML file
-        html_file_path = os.path.join(os.path.dirname(__file__), "client/whisper_client.html")
+        # Read the HTML file which is in ../client/whisper_client.html
+        html_file_path = os.path.join(os.path.dirname(__file__), "../client/whisper_client.html")
         with open(html_file_path, "r") as f:
             html_content = f.read()
         return html_content
