@@ -2,7 +2,7 @@ FROM rayproject/ray-ml:latest
 
 WORKDIR /app
 
-# System dependencies - ensuring FFmpeg is installed
+# System dependencies
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     libsndfile1 \
@@ -21,4 +21,4 @@ COPY client/ /app/client/
 WORKDIR /app
 
 # Command to run when container starts
-CMD ["python", "-m", "src.server"]
+CMD ["python", "main.py"]
