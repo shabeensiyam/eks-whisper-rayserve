@@ -1,8 +1,8 @@
 import ray
 from ray import serve
 
-from transcription import TranscriptionServer
-from whisper_asr import WhisperASR
+from .transcription import TranscriptionServer
+from .whisper_asr import WhisperASR
 
 
 def entrypoint():
