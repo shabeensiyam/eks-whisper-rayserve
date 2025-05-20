@@ -336,9 +336,31 @@ class WhisperService:
             config = json.loads(data)
             logger.info(f"Received client config: {config}")
             return config
-        except (asyncio.TimeoutError, json.JSONDecodeError) as e:
-            logger.warning(f"Failed to get client config: {str(e)}, using defaults")
+        except asyncio.TimeoutError:
+            logger.warning(f"Timeout waiting for client config, using defaults")
             # Default configuration
+            return {
+                "chunk_duration": 5.0,
+                "sample_rate": 16000,
+                "overlap": 0.5,
+                "model_size": "base",
+                "language": None,
+                "task": "transcribe",
+                "use_context": True
+            }
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse client config JSON: {str(e)}, using defaults")
+            return {
+                "chunk_duration": 5.0,
+                "sample_rate": 16000,
+                "overlap": 0.5,
+                "model_size": "base",
+                "language": None,
+                "task": "transcribe",
+                "use_context": True
+            }
+        except Exception as e:
+            logger.warning(f"Error getting client config: {str(e)}, using defaults")
             return {
                 "chunk_duration": 5.0,
                 "sample_rate": 16000,
