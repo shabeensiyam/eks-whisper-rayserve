@@ -327,3 +327,24 @@ class WhisperService:
             if connection_id in self.active_connections:
                 del self.active_connections[connection_id]
             logger.info(f"WebSocket connection closed: {connection_id}")
+
+    async def _get_client_config(self, websocket: WebSocket) -> Dict[str, Any]:
+        """Get initial configuration from WebSocket client."""
+        try:
+            # Wait for initial config with timeout
+            data = await asyncio.wait_for(websocket.receive_text(), timeout=5.0)
+            config = json.loads(data)
+            logger.info(f"Received client config: {config}")
+            return config
+        except (asyncio.TimeoutError, json.JSONDecodeError) as e:
+            logger.warning(f"Failed to get client config: {str(e)}, using defaults")
+            # Default configuration
+            return {
+                "chunk_duration": 5.0,
+                "sample_rate": 16000,
+                "overlap": 0.5,
+                "model_size": "base",
+                "language": None,
+                "task": "transcribe",
+                "use_context": True
+            }
