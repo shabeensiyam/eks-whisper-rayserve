@@ -7,6 +7,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     libsndfile1 \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install minimal dependencies
