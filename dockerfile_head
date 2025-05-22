@@ -14,8 +14,9 @@ COPY requirements-head.txt .
 RUN pip install -r requirements-head.txt
 
 # Copy source code
-COPY src/ /app/src/
-COPY client/ /app/client/
-
+COPY *.py /app/
+COPY whisper_client.html /app/
+COPY *.txt /app/
+COPY README.md /app/
 # Command to run when container starts
 #CMD ["python", "src/main.py", "--head-only"]
