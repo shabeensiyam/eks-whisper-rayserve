@@ -2,7 +2,7 @@ apiVersion: ray.io/v1
 kind: RayService
 metadata:
   name: whisper-streaming
-  namespace: default
+  namespace: w3w-dev-test
 spec:
   deploymentUnhealthySecondThreshold: 300
   rayClusterConfig:
@@ -13,12 +13,7 @@ spec:
       template:
         spec:
           containers:
-            - env:
-                - name: RAY_GRAFANA_HOST
-                  value: http://kube-prometheus-stack-grafana.kube-prometheus-stack.svc:80
-                - name: RAY_PROMETHEUS_HOST
-                  value: http://kube-prometheus-stack-prometheus.kube-prometheus-stack.svc:9090
-              image: YOUR_REGISTRY/whisper-streaming:latest
+              image: 503358395138.dkr.ecr.eu-west-2.amazonaws.com/sandbox-whisper:head
               name: ray-head
               resources:
                 limits:
@@ -47,7 +42,7 @@ spec:
           spec:
             containers:
               - name: ray-worker
-                image: YOUR_REGISTRY/whisper-streaming:latest
+                image: 503358395138.dkr.ecr.eu-west-2.amazonaws.com/sandbox-whisper:worker
                 resources:
                   limits:
                     cpu: "4"
@@ -73,7 +68,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: whisper-streaming-serve-svc
-  namespace: default
+  namespace: w3w-dev-test
 spec:
   ports:
     - name: http
@@ -89,7 +84,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: whisper-streaming-head-svc
-  namespace: default
+  namespace: w3w-dev-test
 spec:
   ports:
     - name: gcs
@@ -116,35 +111,35 @@ spec:
     component: ray-head
     rayservice: whisper-streaming
   type: ClusterIP
----
-# Service account for Ray clusters
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: ray-cluster-service-account
-  namespace: default
----
-# RBAC for the service account
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: ray-cluster-role
-  namespace: default
-rules:
-  - apiGroups: [ "" ]
-    resources: [ "pods", "services" ]
-    verbs: [ "get", "watch", "list", "create", "delete", "patch" ]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: ray-cluster-role-binding
-  namespace: default
-subjects:
-  - kind: ServiceAccount
-    name: ray-cluster-service-account
-    namespace: default
-roleRef:
-  kind: Role
-  name: ray-cluster-role
-  apiGroup: rbac.authorization.k8s.io
+#---
+## Service account for Ray clusters
+#apiVersion: v1
+#kind: ServiceAccount
+#metadata:
+#  name: ray-cluster-service-account
+#  namespace: w3w-dev-test
+#---
+## RBAC for the service account
+#apiVersion: rbac.authorization.k8s.io/v1
+#kind: Role
+#metadata:
+#  name: ray-cluster-role
+#  namespace: w3w-dev-test
+#rules:
+#  - apiGroups: [ "" ]
+#    resources: [ "pods", "services" ]
+#    verbs: [ "get", "watch", "list", "create", "delete", "patch" ]
+#---
+#apiVersion: rbac.authorization.k8s.io/v1
+#kind: RoleBinding
+#metadata:
+#  name: ray-cluster-role-binding
+#  namespace: w3w-dev-test
+#subjects:
+#  - kind: ServiceAccount
+#    name: ray-cluster-service-account
+#    namespace: w3w-dev-test
+#roleRef:
+#  kind: Role
+#  name: ray-cluster-role
+#  apiGroup: rbac.authorization.k8s.io
