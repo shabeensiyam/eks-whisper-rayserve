@@ -1,0 +1,24 @@
+# ===== RUNTIME STAGE =====
+FROM python:3.10-slim
+
+# Install Python and system dependencies
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install Python and runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    wget \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Whisper model cache from builder stage
+RUN python -c "import whisper; whisper.load_model('turbo')"
+
+# Set workdir
+WORKDIR /app
+
+# Copy source code
+COPY *.py /app/
+COPY whisper_client.html /app/
+COPY *.txt /app/
+COPY README.md /app/
